@@ -1,87 +1,68 @@
-const fetch   = require('node-fetch');
+const fetch = require('node-fetch');
 const { Env } = require("@humanwhocodes/env");
-const DNSimple = require('dnsimple');
+const DigitalOcean = require('do-wrapper').default;
 
 require('dotenv').config();
-
 const env = new Env();
 
 async function getPublicIp() {
   const response = await fetch('https://api.ipify.org?format=json');
-
   const data = await response.json();
-
   return data.ip;
 }
 
-async function getZoneRecordId(credentials, accountId, recordName, zone) {
-  const dnsimple = DNSimple(credentials);
-
-  return new Promise( (resolve, reject) => {
-    dnsimple
-      .zones
-      .listZoneRecords(accountId, zone, {name: recordName})
-      .then( response => {
-        if (response.pagination.total_entries >= 1) {
-          resolve(response.data[0].id);
-        } else {
-          resolve(undefined);
-        }
-      })
-      .catch(reject);
+async function getZoneRecordId(api, domain, recordName) {
+  console.log(`Getting record for ${recordName}`);
+  return api.domains.getAllRecords(domain, recordName, true)
+    .then(response => response.filter((record) => record.name === recordName))
+    .then(result => {
+      if (result[0]) {
+        return result[0].id;
+      } else {
+        return null;
+      }
   });
 }
 
-async function createZoneRecord(credentials, accountId, recordName, zone, ip) {
-  const dnsimple = DNSimple(credentials);
-
+async function createZoneRecord(api, domain, recordName, ip) {
   record = {
     name: recordName,
     type: "A",
-    content: ip,
+    data: ip
   };
 
-  return new Promise( (resolve, reject) => {
-    dnsimple.zones.createZoneRecord(accountId, zone, record)
-      .then(resolve)
-      .catch(reject);
-  });
+  console.log(`Creating record:`, record);
+  api.domains.createRecord(domain, record);
 }
 
-async function updateZoneRecord(credentials, accountId, recordId, zone, ip) {
-  const dnsimple = DNSimple(credentials);
+async function updateZoneRecord(api, domain, zoneRecordId, ip) {
+  record = {
+    data: ip
+  };
 
-  record = { content: ip };
-
-  return new Promise( (resolve, reject) => {
-    dnsimple.zones.updateZoneRecord(accountId, zone, recordId, record)
-      .then(resolve)
-      .catch(reject);
-  });
+  console.log(`Updating record:`, record);
+  api.domains.updateRecord(domain, zoneRecordId, record);
 }
 
 async function go() {
   console.log(new Date());
 
-  const accountId = env.require('DNSIMPLE_ACCOUNT_ID');
   const domain = env.require('DOMAIN');
   const entryName  = env.require('ENTRY_NAME');
-  const dnsimpleCredentials = {
-    accessToken: env.require('DNSIMPLE_ACCESS_TOKEN'),
-    baseUrl: env.require('DNSIMPLE_BASE_URL'),
-  };
+  const accessToken = env.require('DIGITAL_OCEAN_ACCESS_TOKEN');
 
-  const publicIp  = await getPublicIp();
+  const digitalOcean = new DigitalOcean(accessToken);
+  const publicIp = await getPublicIp();
 
   console.log('Public IP:', publicIp);
 
   try {
-    const zoneRecordId = await getZoneRecordId(dnsimpleCredentials, accountId, "vpn", "cromwellhaus.com");
+    const zoneRecordId = await getZoneRecordId(digitalOcean, domain, entryName);
 
     if (zoneRecordId) {
-      await updateZoneRecord(dnsimpleCredentials, accountId, zoneRecordId, "cromwellhaus.com", publicIp);
+      await updateZoneRecord(digitalOcean, domain, zoneRecordId, publicIp);
     } else {
-      await createZoneRecord(dnsimpleCredentials, accountId, "vpn", "cromwellhaus.com", publicIp);
+      await createZoneRecord(digitalOcean, domain, entryName, publicIp);
     }
   } catch(e) {
     console.error(e);

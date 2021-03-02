@@ -12,6 +12,7 @@
   "dependencies": {
     "@humanwhocodes/env": "^2.1.2",
     "dnsimple": "^4.3.0",
+    "do-wrapper": "^4.4.1",
     "dotenv": "^8.2.0",
     "node-fetch": "^2.6.1"
   }
